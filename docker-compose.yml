@@ -1,0 +1,43 @@
+# Local-only OTel capture stack for "Same prompt, three agents".
+# Every port is bound to 127.0.0.1: nothing here is reachable from your network,
+# and nothing is exported anywhere except into ./captures and the local UIs.
+name: coding-agent-otel
+
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.162.0
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    # Run as your host user so the file exporter can write into ./captures.
+    # scripts/up.sh exports KIT_UID / KIT_GID for you.
+    user: "${KIT_UID:-10001}:${KIT_GID:-10001}"
+    volumes:
+      - ./collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - ./captures:/captures
+    ports:
+      - "127.0.0.1:4317:4317"     # OTLP gRPC  (Claude Code, Qwen Code)
+      - "127.0.0.1:4318:4318"     # OTLP HTTP  (Codex CLI)
+      - "127.0.0.1:13133:13133"   # health_check extension
+      - "127.0.0.1:8889:8889"     # Prometheus exporter (scraped by prometheus below)
+    depends_on:
+      - jaeger
+    restart: unless-stopped
+
+  jaeger:
+    # Jaeger v2 all-in-one: in-memory storage, OTLP in on 4317/4318 (internal only).
+    image: jaegertracing/jaeger:2.22.0
+    ports:
+      - "127.0.0.1:16686:16686"   # Jaeger UI
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=7d"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1:9090:9090"     # Prometheus UI
+    depends_on:
+      - otel-collector
+    restart: unless-stopped

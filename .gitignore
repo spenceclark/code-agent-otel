@@ -1,0 +1,14 @@
+# Raw telemetry (may contain prompts, file contents, emails) - never commit.
+captures/
+# Scratch copy of the sample repo that agents edit.
+work/
+# Local overrides / secrets.
+.env
+.env.local
+*.local.env
+env/*.local.env
+# Python / OS noise
+__pycache__/
+.pytest_cache/
+*.pyc
+.DS_Store

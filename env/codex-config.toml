@@ -1,0 +1,24 @@
+# Codex CLI - [otel] block, default-privacy variant.
+# Verified against https://developers.openai.com/codex/config-advanced and
+# https://developers.openai.com/codex/config-reference (fetched 2026-10-09).
+#
+# You normally DON'T need to install this: scripts/run-codex.sh passes the same
+# settings as `-c` overrides for a single run. Use scripts/codex-config.sh install
+# only if you want them in ~/.codex/config.toml (e.g. for interactive runs).
+#
+# Must live in USER config ($CODEX_HOME/config.toml, default ~/.codex/config.toml).
+# Codex ignores `otel` in a project-local .codex/config.toml (with a startup warning).
+
+[otel]
+environment = "default"     # free-form tag on every event; defaults to "dev"
+log_user_prompt = false     # default: prompts redacted
+
+# Logs/events (Codex's primary OTel signal). Full signal path required for otlp-http.
+exporter = { otlp-http = { endpoint = "http://127.0.0.1:4318/v1/logs", protocol = "binary" } }
+
+# Traces.
+trace_exporter = { otlp-http = { endpoint = "http://127.0.0.1:4318/v1/traces", protocol = "binary" } }
+
+# Metrics. The default is "statsig" (i.e. sent to OpenAI), NOT your collector.
+# Shape taken from Codex's own test suite (codex-rs/cli/tests/daemon_telemetry.rs).
+metrics_exporter = { otlp-http = { endpoint = "http://127.0.0.1:4318/v1/metrics", protocol = "binary" } }

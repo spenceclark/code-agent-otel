@@ -1,0 +1,94 @@
+# OpenTelemetry Collector (contrib 0.162.0) config for the three-agent capture kit.
+#
+# Signals in:  OTLP gRPC :4317, OTLP HTTP :4318 (host side bound to 127.0.0.1 in compose).
+# Signals out (all local):
+#   - debug exporter (detailed) -> `docker compose logs -f otel-collector`
+#   - file exporters -> /captures/<signal>/<service.name>.jsonl  (one file per agent)
+#                       /captures/all/<signal>.jsonl              (everything, safety net)
+#   - Jaeger (traces), Prometheus scrape endpoint :8889 (metrics)
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 1s
+
+exporters:
+  debug:
+    verbosity: detailed
+
+  # Per-agent files: the `*` is replaced with each resource's service.name, so you
+  # get e.g. traces/claude-code.jsonl without needing to know names up front.
+  # NB: group_by drops resources that have no string service.name; the
+  # file/all_* exporters below catch everything regardless.
+  file/traces:
+    path: /captures/traces/*.jsonl
+    append: true
+    flush_interval: 1s
+    group_by:
+      enabled: true
+      resource_attribute: service.name
+  file/metrics:
+    path: /captures/metrics/*.jsonl
+    append: true
+    flush_interval: 1s
+    group_by:
+      enabled: true
+      resource_attribute: service.name
+  file/logs:
+    path: /captures/logs/*.jsonl
+    append: true
+    flush_interval: 1s
+    group_by:
+      enabled: true
+      resource_attribute: service.name
+
+  file/all_traces:
+    path: /captures/all/traces.jsonl
+    append: true
+    create_directory: true
+    flush_interval: 1s
+  file/all_metrics:
+    path: /captures/all/metrics.jsonl
+    append: true
+    create_directory: true
+    flush_interval: 1s
+  file/all_logs:
+    path: /captures/all/logs.jsonl
+    append: true
+    create_directory: true
+    flush_interval: 1s
+
+  otlp_grpc/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
+  prometheus:
+    endpoint: 0.0.0.0:8889
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug, file/traces, file/all_traces, otlp_grpc/jaeger]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug, file/metrics, file/all_metrics, prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug, file/logs, file/all_logs]

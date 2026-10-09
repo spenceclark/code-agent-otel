@@ -1,0 +1,13 @@
+{
+  "telemetry": {
+    "enabled": true,
+    "target": "local",
+    "otlpEndpoint": "http://127.0.0.1:4317",
+    "otlpProtocol": "grpc",
+    "logPrompts": true,
+    "includeSensitiveSpanAttributes": false
+  },
+  "outboundCorrelation": {
+    "propagateTraceContext": false
+  }
+}
