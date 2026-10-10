@@ -599,6 +599,117 @@ Gotchas found while building this:
   `reference/limits`, `observe/llms`, `observe/agents`, `observe/llm-panels`,
   `manage/query-api`, `integrations/codex`, `manage/logfire-costs`, `get-started/faq`.
 
+## 8. The wider landscape (checked 2026-10-10)
+
+A table of CLI coding agents' OTel support was checked against official docs, repos,
+issues and changelogs. For Claude Code, Codex and Qwen Code it was also checked against
+our captures and the installed code. Corrections to the original table are in **bold**.
+
+| Agent | Traces | Metrics | Logs | Protocol | Enable | Naming | Content by default |
+|---|---|---|---|---|---|---|---|
+| Claude Code | yes (beta) | yes | yes | gRPC, HTTP (protocol must be set); metrics also Prometheus/console | `CLAUDE_CODE_ENABLE_TELEMETRY=1` (+ `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1` and `OTEL_TRACES_EXPORTER` for traces) | own `claude_code.*` + a few `gen_ai.*` | off (prompt `<REDACTED>`); **`user.email` on every record** (observed) |
+| Copilot CLI | yes | yes | **span events only, no log signal** | **HTTP only (http/json default, http/protobuf), plus file** | `COPILOT_OTEL_ENABLED=true`, `OTEL_EXPORTER_OTLP_ENDPOINT` or `COPILOT_OTEL_FILE_EXPORTER_PATH` | GenAI conventions (`invoke_agent` → `chat` / `execute_tool`) + `github.copilot.*` | off (`OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`); pseudonymous `enduser.pseudo.id` |
+| Gemini CLI | yes | yes | yes | gRPC (default), HTTP, file; also direct to GCP | `GEMINI_TELEMETRY_ENABLED` (**`..._TRACES_ENABLED` adds full prompts/tool output to spans, it doesn't switch traces on**) | **mostly `gemini_cli.*`; `gen_ai.*` on spans and a few items** | **prompts on** (`logPrompts`); **`user.email` when signed in**. Consumer users moved to Antigravity CLI in June 2026 |
+| Qwen Code | yes | yes | yes | gRPC (default, confirmed in code), HTTP | `QWEN_TELEMETRY_ENABLED` | GenAI conventions + `qwen-code.*` | **prompts on in logs** (`logPrompts ?? true` in code), off on spans. Based on Gemini CLI v0.8.2; telemetry module derived from it |
+| Codex CLI | yes, **opt-in via `trace_exporter`; undocumented span names, thousands of internal spans observed** | yes (**default exporter is OpenAI's Statsig**) | yes | gRPC, HTTP (both exporters in the binary) | `[otel]` in `~/.codex/config.toml` or `-c otel.*` | `codex.*` events, internal Rust span names, `gen_ai.usage.*` tokens | prompt off; **tool arguments and output (file contents) on**, observed, not "may be" |
+| OpenCode | experimental: AI SDK LLM spans need **both** `experimental.openTelemetry: true` **and** an endpoint; open bugs | no | **yes** (whenever the endpoint is set) | **HTTP/JSON only** (`_PROTOCOL` and `OTEL_SERVICE_NAME` ignored) | `OTEL_EXPORTER_OTLP_ENDPOINT` (+ the flag for LLM spans); undocumented | Vercel AI SDK (`ai.*` + `gen_ai.*`) | **prompts on once LLM spans are on** (AI SDK `recordInputs` default), undocumented |
+| Cursor (incl. CLI) | no ("Cursor doesn't send traces") | server-side, Enterprise | server-side, Enterprise | OTLP/HTTP protobuf, pushed from Cursor's servers | admin: Team Settings → OpenTelemetry Export | `cursor.*` | **CLI usage is exported** (`cursor.surface=cli`); CLI prompt/response text is not |
+| Factory Droid | partial (only with `OTEL_LOG_MESSAGE_CONTENT=true`) | yes | not mentioned | HTTP | `OTEL_TELEMETRY_ENDPOINT`; **`OTEL_TELEMETRY_FORMAT=genai` only switches naming** (default `droid.*`) | GenAI in `genai` mode | off; no token or cost metrics |
+| Goose | yes | yes | yes | **http/protobuf only** (gRPC skipped) | `OTEL_EXPORTER_OTLP_ENDPOINT` | **GenAI conventions** | **off** (`OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`). Repo now `aaif-goose/goose` |
+| Kilo CLI | HTTP request spans only (AI SDK telemetry explicitly disabled) | no | yes | HTTP | on by default when an endpoint is set | `opencode.*` (built on OpenCode) | no prompt-bearing spans; logs unconfirmed |
+| OpenHands | yes via Laminar (**SDK confirmed, CLI unconfirmed**) | no | no | gRPC, HTTP | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | custom (`conversation`, `agent.step`, `llm.completion`, `tool.execute`) | tool input/output captured |
+| Cline | no per docs (undocumented `CLINE_OTEL_TRACES_EXPORTER` in source) | yes | yes | gRPC, HTTP | `CLINE_OTEL_TELEMETRY_ENABLED` | custom (`task.*`, `hooks.*`) | metadata only (e.g. `prompt_length`); docs target the VS Code extension, CLI unconfirmed |
+| Continue CLI | no | yes | no (literal `TODO`) | OTLP/HTTP, console | **an OTLP endpoint or `OTEL_METRICS_EXPORTER`** (`CONTINUE_METRICS_ENABLED=0` disables; `=1` alone does nothing) | custom `continue_cli_*` (incl. tokens and cost) | none |
+| Kiro CLI | no | daily aggregates, Enterprise, admin-configured | no | **OTLP/gRPC (default) or HTTP** | admin console | **`kiro.daily.*`** | none |
+
+No native OTel: **Crush** (issue moved to a discussion, PR closed unmerged), **Amp** (third-party
+`trace-amp` wrapper only), **Aider** (feature request open; the LiteLLM-proxy route is
+unconfirmed), **Amazon Q CLI** (feature request open), **Auggie**, **Plandex**, and
+**Warp** (only its self-hosted agent worker exports metrics).
+
+**Popularity, for context.**
+
+- **Surveys:**
+  - Stack Overflow 2026 (n=12,255, used in the past year): Claude Code 65.5%, Copilot
+    58.7%, Codex 29.5%, Cursor 25.5%, OpenCode 13.6%.
+  - JetBrains 2026 (n>15,000, use at work): Claude Code 39%, Copilot 21%, Codex 16%,
+    Cursor 12%, OpenCode 7%.
+  - Qwen Code and Gemini CLI weren't answer options in either survey.
+- **Alibaba has published no usage numbers for Qwen Code.**
+- **npm downloads, week of 2–8 Oct:** Codex 21.4M, Claude Code 12.2M (it also has a native
+  installer), OpenCode 3.0M, Copilot CLI 1.5M, Gemini CLI 385k, Qwen Code 80k.
+- **GitHub stars:** OpenCode 213k, Claude Code 150k, Codex 129k, Gemini CLI 107k,
+  Qwen Code 28k.
+
+Sources:
+
+- Copilot CLI: docs.github.com `copilot/reference/copilot-cli-reference/cli-command-reference#opentelemetry-monitoring`.
+- Gemini CLI: github.com/google-gemini/gemini-cli `docs/cli/telemetry.md`; developers.googleblog.com "transitioning Gemini CLI to Antigravity CLI".
+- Qwen Code: github.com/QwenLM/qwen-code README and `packages/core/src/telemetry/`.
+- OpenCode: github.com/anomalyco/opencode v1.18.35 `packages/core/src/observability/otlp.ts`, issues #33101, #25839, #47195; ai-sdk.dev v6 telemetry.
+- Cursor: cursor.com/docs/enterprise/opentelemetry-export (+ `/wire`).
+- Factory: docs.factory.com/enterprise/telemetry-export.
+- Goose: github.com/aaif-goose/goose `crates/goose/src/otel/otlp.rs`.
+- Kilo: github.com/Kilo-Org/kilocode.
+- OpenHands: docs.openhands.dev/sdk/guides/observability.
+- Cline: docs.cline.bot/enterprise-solutions/monitoring/opentelemetry.
+- Continue: github.com/continuedev/continue `extensions/cli/src/telemetry/telemetryService.ts`.
+- Kiro: kiro.dev/docs/enterprise/monitor-and-track/user-activity/opentelemetry.
+- Surveys: survey.stackoverflow.co/2026/ai; blog.jetbrains.com/research/2026/08/ai-coding-agent-adoption-2026.
+
+## 9. Status of the GenAI semantic conventions (checked 2026-10-10)
+
+- **Official, but experimental.**
+  - The conventions are part of OpenTelemetry, owned by the "Semantic Conventions and
+    Instrumentation: GenAI" SIG.
+  - In 2026 they moved out of the core semconv repo into
+    `open-telemetry/semantic-conventions-genai`; core v1.42.0 deprecated the `gen_ai.*`
+    definitions it used to hold.
+  - The new repo has no releases yet, and **every part is still "Development"**: spans
+    (inference, `execute_tool`, `invoke_agent`), metrics, events, and the
+    provider-specific pages (OpenAI, Anthropic, Bedrock, Azure).
+- **Still changing.**
+  - v1.37.0 (Aug 2025): `gen_ai.system` became `gen_ai.provider.name`, and per-message
+    events gave way to `gen_ai.input.messages` / `gen_ai.output.messages` attributes.
+  - v1.41.0 (Apr 2026): `invoke_agent` was split into client and internal spans.
+  - Unreleased on `main`: `gen_ai.client.token.usage` is being replaced by per-direction
+    usage metrics, and `cache_creation` is being renamed `cache_write`. Codex's
+    `gen_ai.usage.cache_write.input_tokens` already uses the new name.
+  - The `OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental` switch is fading:
+    OTel's Python genai util now defaults to the latest names.
+- **Who sits at the table.**
+  - Maintainers come from Google and Microsoft.
+  - Approvers (per the repo's CONTRIBUTING.md) come from Google, Microsoft, Splunk,
+    Honeycomb, Alibaba and Pydantic.
+  - Anthropic and OpenAI aren't listed (the CODEOWNERS team isn't publicly listable).
+- **Producers that emit it natively (per their docs):** Microsoft Agent Framework,
+  Semantic Kernel, Google ADK, Pydantic AI, AWS Strands and Vercel AI SDK v7. OTel's own
+  instrumentations cover OpenAI, Anthropic, Bedrock, Google GenAI, LangChain and others.
+  The OpenAI Agents SDK uses its own tracing model.
+- **Backends that document support:** Datadog, Grafana Cloud, Honeycomb, New Relic,
+  Dynatrace, Elastic, Splunk, Azure Monitor, Google Cloud Trace, AWS CloudWatch/AgentCore,
+  Logfire, Langfuse, LangSmith and Braintrust. Arize Phoenix converts it into its own
+  OpenInference format at ingest.
+- **Competing dialects.**
+  - OpenInference (Arize) stays separate.
+  - OpenLLMetry (Traceloop) says its conventions "are now part of OpenTelemetry".
+  - Vercel's `ai.*` is now labelled legacy.
+  - OTel's collector has an alpha `genainormalizerprocessor` that translates OpenInference
+    and OpenLLMetry into GenAI semconv.
+- **Jaeger: docs and observation disagree.** The research found Jaeger's GenAI UI pull
+  requests (#4362, #4179) still open. But the `jaegertracing/jaeger:2.22.0` image used
+  here *does* ship a GenAI view and GenAI tab (`screenshots/jaeger-02`, `jaeger-04`,
+  `jaeger-06`). Trust the screenshots; those PRs may be follow-ups.
+
+Sources:
+
+- github.com/open-telemetry/semantic-conventions-genai (`model/manifest.yaml`, `CONTRIBUTING.md`, `changelog.d/`).
+- github.com/open-telemetry/semantic-conventions releases v1.37.0, v1.41.0 and v1.42.0.
+- github.com/open-telemetry/community `workstreams.yml`.
+- github.com/open-telemetry/opentelemetry-python-genai.
+- opentelemetry.io/blog/2026/genai-observability.
+- Each vendor's own observability docs.
+
 ## Open questions
 
 - Clean-profile runs (no user plugins, MCP servers, hooks or memory) without losing the login.

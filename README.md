@@ -189,7 +189,8 @@ Also useful: `docker compose logs -f otel-collector` (debug exporter, `verbosity
   `/v1/metrics`).
 - **Codex needs a git repo** (hence `reset-sample.sh` runs `git init`).
 - **Codex on Windows: the `elevated` sandbox can fail** with `setup refresh had errors`, so
-  every tool call is rejected and the run does nothing (exit status is still 0). Check with
+  every tool call is rejected and the run does nothing. The exit status is still 0, and it
+  still exports thousands of spans. Check with
   `codex sandbox -- cmd //c echo ok`. Workaround without editing your config:
   `scripts/run-codex.sh -- -c 'windows.sandbox="unelevated"'`.
 - **Qwen logs prompts by default** (`logPrompts` defaults to `true`): prompt text and API
@@ -206,6 +207,9 @@ Also useful: `docker compose logs -f otel-collector` (debug exporter, `verbosity
   for one run:
   `OPENAI_API_KEY="$OPENROUTER_API_KEY" scripts/run-qwen.sh -- --auth-type openai --openai-base-url https://openrouter.ai/api/v1 --model <id>`.
   The HTTP client spans record the URL, so check `captures/runs/<run>/all/traces.jsonl`.
+- **Docker Compose exports its own traces whenever `OTEL_EXPORTER_OTLP_ENDPOINT` is set.**
+  A `docker compose` command run from a shell configured for an agent ends up in your
+  captures as a `compose` service. The kit's `compose()` helper unsets `OTEL_*` first.
 - **The collector's file `group_by` drops resources without a string `service.name`.**
   The `all/` files still have them.
 - **Time zones.** OTLP timestamps are UTC nanoseconds.
