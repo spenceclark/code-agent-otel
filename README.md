@@ -34,6 +34,9 @@ scripts/
   reset-sample.sh           recreate work/sample from sample-repo/ (fresh git repo)
   rotate-captures.sh        move live captures into captures/runs/<label>/
   summarise.sh              per-agent counts, names, attribute keys, token sums, canary hits
+  lib/tree.jq               span tree as indented text, with durations
+  replay.sh                 replay an archived run through a one-shot collector, identity stripped
+                            (dry run, or to a vendor via collector/replay-<vendor>.yaml)
   codex-config.sh           optional: install/uninstall the [otel] block in ~/.codex/config.toml (with backup)
 sample-repo/                tiny Python project (one deliberately failing test)
 PROMPT.md                   the exact shared prompt (scripts read it from here)
@@ -43,12 +46,20 @@ PROMPT.md                   the exact shared prompt (scripts read it from here)
 
 - Docker with the Compose plugin (`docker compose`)
 - `bash`, `curl`, `jq`, `git`
-- `python3` with `pytest` importable (`python3 -m pip install pytest`). Codex's
+- `python` with `pytest` importable (`python -m pip install pytest`); the prompt runs `python -m pytest`. Codex's
   `workspace-write` sandbox has no network, so it can't install pytest itself.
 - The three CLIs, installed and logged in:
   - Claude Code (`claude`)
   - Codex CLI (`codex`)
   - Qwen Code (`qwen`)
+
+**Windows:** run the scripts from a Git Bash terminal (the shell Claude Code already
+uses). Don't type `bash scripts/...` in PowerShell: there `bash` is WSL, which can't see
+your Windows `docker`, `claude` or `codex`. The repo's `.gitattributes` keeps the scripts
+LF; with CRLF, bash fails and the env files load values with a trailing `\r`. If the
+collector logs `permission denied` on `/captures`, an earlier plain `docker compose up`
+created those folders as a different uid: delete `captures/{all,traces,metrics,logs}`
+(not `captures/runs/`, which holds your archived runs) and run `scripts/up.sh` again.
 
 ## Quick start
 
@@ -112,7 +123,7 @@ batching. The file names are whatever `service.name` each agent reports. That's 
 finding in itself, so the kit deliberately doesn't override it with `OTEL_SERVICE_NAME`.
 
 Claude and Qwen runs also carry `kit.run.id` and `kit.mode` resource attributes (via
-`OTEL_RESOURCE_ATTRIBUTES`). Codex tags events with `otel.environment` = the mode instead.
+`OTEL_RESOURCE_ATTRIBUTES`). Codex reports the mode as the resource attribute `env` (from `otel.environment`) instead.
 Jaeger keeps everything in memory across runs, so filter by those tags.
 
 Also useful: `docker compose logs -f otel-collector` (debug exporter, `verbosity: detailed`).
@@ -120,11 +131,12 @@ Also useful: `docker compose logs -f otel-collector` (debug exporter, `verbosity
 ## What to compare
 
 1. **Signals.** Which of traces, metrics and logs each agent sends for one task, and how
-   many of each. Codex is log-event-first. Claude and Qwen nest spans under an
-   interaction root.
+   many of each. Codex's docs list only log events and metrics, but it also exports
+   thousands of internal spans. Claude and Qwen nest spans under an interaction root.
 2. **Trace shape.** The span tree in Jaeger, e.g. Claude
    `claude_code.interaction -> llm_request / tool -> tool.blocked_on_user / tool.execution`,
-   Qwen `qwen-code.interaction -> llm_request / tool -> ...`. Screenshot side by side.
+   Qwen `qwen-code.interaction -> llm_request / tool -> ...`. Screenshot side by side, or
+   print one as text with `jq -nr -f scripts/lib/tree.jq <run>/traces/<service>.jsonl`.
 3. **Attribute mapping.** `summarise.sh --keys-only` against the GenAI semantic
    conventions (`gen_ai.operation.name`, `gen_ai.usage.*`, `gen_ai.tool.*`, `invoke_agent`,
    `execute_tool`). Qwen is closest to the conventions. Claude uses its own names plus a
@@ -159,6 +171,11 @@ Also useful: `docker compose logs -f otel-collector` (debug exporter, `verbosity
   `ANTHROPIC_BASE_URL` proxy it doesn't, unless `CLAUDE_CODE_PROPAGATE_TRACEPARENT=1`.
   This matters for any wire-level proxy, e.g. Vessel.
 - **Claude metrics are delta by default.** The kit sets cumulative for Prometheus.
+- **Launching `claude -p` from inside a Claude Code session leaks the parent's env**
+  (`CLAUDE_EFFORT`, `CLAUDE_CODE_*`, preview flags). Here that raised effort to `xhigh` and
+  added a span-only Haiku `agent_classifier` call. When `CLAUDECODE=1`, `run-claude.sh` unsets
+  `CLAUDECODE` and `CLAUDE_*` (except `CLAUDE_CONFIG_DIR`). The desktop app also sets `ANTHROPIC_BASE_URL`;
+  unset it yourself if you don't use a gateway.
 - **Codex `[otel]` only works in user config.** `otel` is ignored, with a warning, in
   project `.codex/config.toml`. The kit avoids touching `~/.codex/config.toml` by
   passing `-c otel.*=...` overrides per run. `scripts/codex-config.sh install` is there
@@ -171,6 +188,10 @@ Also useful: `docker compose logs -f otel-collector` (debug exporter, `verbosity
 - **Codex otlp-http endpoints need the full signal path** (`/v1/logs`, `/v1/traces`,
   `/v1/metrics`).
 - **Codex needs a git repo** (hence `reset-sample.sh` runs `git init`).
+- **Codex on Windows: the `elevated` sandbox can fail** with `setup refresh had errors`, so
+  every tool call is rejected and the run does nothing (exit status is still 0). Check with
+  `codex sandbox -- cmd //c echo ok`. Workaround without editing your config:
+  `scripts/run-codex.sh -- -c 'windows.sandbox="unelevated"'`.
 - **Qwen logs prompts by default** (`logPrompts` defaults to `true`): prompt text and API
   request/response text go into OTel *logs*. The kit's "default" Qwen run keeps that on
   purpose. `--no-prompts` turns it off.
@@ -179,24 +200,30 @@ Also useful: `docker compose logs -f otel-collector` (debug exporter, `verbosity
 - **Qwen doesn't send `traceparent` upstream** unless `outboundCorrelation.propagateTraceContext`
   is `true`. That's a settings.json key with no documented env var.
 - **Qwen's `otlpProtocol` is `grpc` or `http`**, not the standard `http/protobuf` values.
+- **`qwen --model <id>` for a model that isn't in your `modelProviders` silently changes
+  endpoint.** It went to Qwen's default (`dashscope.aliyuncs.com`), with whatever key the
+  `openai` auth type resolved to (probably `OPENAI_API_KEY`), not to the `baseUrl` in your settings, and failed with a 401. To use an OpenRouter model
+  for one run:
+  `OPENAI_API_KEY="$OPENROUTER_API_KEY" scripts/run-qwen.sh -- --auth-type openai --openai-base-url https://openrouter.ai/api/v1 --model <id>`.
+  The HTTP client spans record the URL, so check `captures/runs/<run>/all/traces.jsonl`.
 - **The collector's file `group_by` drops resources without a string `service.name`.**
   The `all/` files still have them.
 - **Time zones.** OTLP timestamps are UTC nanoseconds.
 
 ## Verification status
 
-Checked on 2026-10-09 against the docs below. The collector config was validated with
+Checked on 2026-10-09 against the docs below, then run for real on 2026-10-10. The collector config was validated with
 `otelcol-contrib validate` (0.162.0) and smoke-tested with synthetic OTLP, which produced
-per-service files, the Prometheus endpoint and `summarise.sh` output. The agents
-themselves were **not** run while building this kit.
+per-service files, the Prometheus endpoint and `summarise.sh` output. Both rounds (default
+and full content) were then run on Windows 11 with Claude Code 2.1.296, codex-cli 0.162.1 and Qwen Code 0.25.0.
 
 | Item | Status |
 |---|---|
 | Claude env var names and values | Verified (monitoring docs) |
 | Codex `[otel]` keys: `environment`, `exporter`, `trace_exporter`, `metrics_exporter`, `log_user_prompt`, otlp-http `endpoint`/`protocol` | Verified (config reference) |
 | Codex `metrics_exporter = { otlp-http = {...} }` shape | Verified from Codex's own test suite, not shown in user docs |
-| Codex `-c otel.*` overrides take effect for `codex exec` | **TODO: confirm on first run.** Codex's tests use `-c otel.metrics_exporter=...`, but I haven't run it with `exec`. If nothing arrives, use `scripts/codex-config.sh install` + `run-codex.sh --user-config` |
-| Codex span names / trace content | **TODO: undocumented.** Docs list log events and metrics only |
+| Codex `-c otel.*` overrides take effect for `codex exec` | Verified on a real run (codex-cli 0.162.1): logs, traces and metrics all arrive |
+| Codex span names / trace content | Observed, not documented: thousands of internal spans per run (`fs.get_metadata`, `handle_responses`, ...) across hundreds of traces |
 | Codex per-run tag via `OTEL_RESOURCE_ATTRIBUTES` | Not documented, so not relied on (uses `otel.environment`) |
 | Qwen env var names, defaults, `-p` / `--approval-mode yolo` / `--output-format json` | Verified (telemetry, settings and headless docs) |
 | `claude -p`, `--allowedTools`, `--output-format json`; `codex exec --sandbox workspace-write` | Verified (headless / non-interactive docs) |

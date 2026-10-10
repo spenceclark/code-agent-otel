@@ -1,0 +1,73 @@
+# One-shot replay of an archived run (captures/runs/<run id>/, mounted at /replay) through
+# a collector. Used by scripts/replay.sh.
+#
+# On its own this is a dry run: it reads the files, strips identity attributes and prints
+# item counts (debug exporter). A vendor overlay (e.g. collector/replay-logfire.yaml) adds
+# the real exporter and rewires the pipelines.
+
+receivers:
+  otlp_json_file/traces:
+    include: [/replay/traces/*.jsonl]
+    exclude: [/replay/traces/compose.jsonl]   # docker compose's own spans, see FINDINGS.md
+    start_at: beginning
+    max_log_size: 16MiB                    # one line = one export request; Codex lines reach ~0.5 MB
+  otlp_json_file/metrics:
+    include: [/replay/metrics/*.jsonl]
+    start_at: beginning
+    max_log_size: 16MiB
+  otlp_json_file/logs:
+    include: [/replay/logs/*.jsonl]
+    start_at: beginning
+    max_log_size: 16MiB
+
+processors:
+  # Nothing that identifies a person or machine leaves the box: resource attributes
+  # (Codex puts host.name there) and span / span event / log / datapoint attributes.
+  transform/strip_identity:
+    error_mode: ignore
+    trace_statements:
+      - context: resource
+        statements: ['delete_matching_keys(attributes, "^(user\\..*|organization\\.id|host\\.name)$")']
+      - context: span
+        statements: ['delete_matching_keys(attributes, "^(user\\..*|organization\\.id|host\\.name)$")']
+      - context: spanevent
+        statements: ['delete_matching_keys(attributes, "^(user\\..*|organization\\.id|host\\.name)$")']
+    log_statements:
+      - context: resource
+        statements: ['delete_matching_keys(attributes, "^(user\\..*|organization\\.id|host\\.name)$")']
+      - context: log
+        statements: ['delete_matching_keys(attributes, "^(user\\..*|organization\\.id|host\\.name)$")']
+    metric_statements:
+      - context: resource
+        statements: ['delete_matching_keys(attributes, "^(user\\..*|organization\\.id|host\\.name)$")']
+      - context: datapoint
+        statements: ['delete_matching_keys(attributes, "^(user\\..*|organization\\.id|host\\.name)$")']
+  # Tag everything so replays are easy to filter on the receiving side.
+  resource/replay:
+    attributes:
+      - { key: kit.replay, value: "true", action: upsert }
+
+exporters:
+  debug:
+    verbosity: ${env:REPLAY_DEBUG_VERBOSITY:-basic}
+
+service:
+  # The item counts come from the debug exporter's log lines, so log sampling (on by
+  # default: first 10 identical messages, then 1 in 100) would undercount.
+  telemetry:
+    logs:
+      sampling:
+        enabled: false
+  pipelines:
+    traces:
+      receivers: [otlp_json_file/traces]
+      processors: [transform/strip_identity, resource/replay]
+      exporters: [debug]
+    metrics:
+      receivers: [otlp_json_file/metrics]
+      processors: [transform/strip_identity, resource/replay]
+      exporters: [debug]
+    logs:
+      receivers: [otlp_json_file/logs]
+      processors: [transform/strip_identity, resource/replay]
+      exporters: [debug]

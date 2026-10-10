@@ -1,0 +1,20 @@
+# Overlay for `scripts/replay.sh <run dir> logfire`: send the replay to Pydantic Logfire.
+# Reads env/logfire.local.env (gitignored), KEY=value lines, no quotes:
+#   LOGFIRE_TOKEN=<project write token>
+#   LOGFIRE_ENDPOINT=https://logfire-us.pydantic.dev    # or https://logfire-eu.pydantic.dev
+# Logfire drops records more than 24 h old (by their own timestamp), so replay within a day.
+# ponytail: metrics go as captured (Claude's are cumulative); Logfire's standard dashboards
+# want delta. Add the cumulativetodelta processor if you need those dashboards.
+exporters:
+  otlp_http/logfire:
+    endpoint: ${env:LOGFIRE_ENDPOINT}   # the exporter appends /v1/traces, /v1/logs, /v1/metrics
+    headers:
+      Authorization: ${env:LOGFIRE_TOKEN}
+    sending_queue:
+      enabled: false                    # export synchronously so failures show in the log
+
+service:
+  pipelines:
+    traces:  { exporters: [debug, otlp_http/logfire] }
+    metrics: { exporters: [debug, otlp_http/logfire] }
+    logs:    { exporters: [debug, otlp_http/logfire] }

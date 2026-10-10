@@ -33,6 +33,11 @@ pre_run
 
 # Start from a clean slate: don't let telemetry vars from your shell leak into the comparison.
 scrub_otel_env
+# Started from inside a Claude Code session? Drop the parent's vars (effort, entrypoint, child-session flags).
+if [[ "${CLAUDECODE:-}" == 1 ]]; then
+  while IFS= read -r v; do unset "$v"; done < <(compgen -e | grep -E '^(CLAUDECODE$|CLAUDE_)' | grep -v '^CLAUDE_CONFIG_DIR$' || true)
+  log "started inside a Claude Code session: unset its CLAUDECODE / CLAUDE_* vars"
+fi
 load_env "$KIT_ROOT/env/claude.env"
 if [[ "$MODE" == full-content ]]; then
   load_env "$KIT_ROOT/env/claude.full-content.env"

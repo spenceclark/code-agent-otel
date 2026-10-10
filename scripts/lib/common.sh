@@ -13,7 +13,8 @@ KIT_FLUSH_WAIT="${KIT_FLUSH_WAIT:-15}"
 log() { printf '\033[1;34m[kit]\033[0m %s\n' "$*" >&2; }
 die() { printf '\033[1;31m[kit] error:\033[0m %s\n' "$*" >&2; exit 1; }
 
-compose() { (cd "$KIT_ROOT" && docker compose "$@"); }
+# scrub_otel_env: docker compose exports its own traces to OTEL_EXPORTER_OTLP_ENDPOINT, i.e. into captures.
+compose() { (cd "$KIT_ROOT" && scrub_otel_env && docker compose "$@"); }
 
 # Load KEY=value lines from an env file into the environment (exported).
 load_env() {
@@ -42,8 +43,8 @@ require_collector() {
 }
 
 check_pytest() {
-  python3 -c 'import pytest' 2>/dev/null \
-    || log "warning: pytest isn't importable by python3; agents may try to install it (Codex's sandbox has no network)"
+  python -c 'import pytest' 2>/dev/null \
+    || log "warning: pytest isn't importable by python; agents may try to install it (Codex's sandbox has no network)"
 }
 
 captures_nonempty() {
