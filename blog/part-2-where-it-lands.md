@@ -215,9 +215,8 @@ curl -X POST https://logfire-eu.pydantic.dev/v2/query \
 Everything arrived:
 
 - **Every span, log record and metric datapoint**, with counts matching what was sent:
-  - Claude Code: 30 spans, 49 logs, 40 datapoints.
-  - Codex: 4,710 spans, 48 logs, 222 datapoints.
-  - Qwen Code: 95 spans, 776 datapoints.
+  30 spans, 49 logs and 40 datapoints from Claude Code; 4,710 spans, 48 logs and 222
+  datapoints from Codex; and 95 spans and 776 datapoints from Qwen Code.
 - **No ingest errors and no identity keys.**
 - **Claude Code's cost metric survived intact** at $0.00799, matching the CLI's own figure.
   Logfire is the only one of the four that documents accepting metrics, so it's the only
@@ -267,8 +266,10 @@ docs don't say why. One guess is that the conventions name that span `invoke_age
 
 - Its `persist_rollout_items` and `realtime_conversation.running_state` spans flood the
   Live view.
-- Its log records have no message Logfire recognises, so they're labelled by Rust source
-  location: `event otel\src\tool_result.rs:54`.
+- Its log records show up labelled by Rust source location, such as
+  `event otel\src\tool_result.rs:54`. That's because Codex puts the source location in
+  OTLP's standard event-name field, and its documented name (`codex.tool_result`) in an
+  `event.name` attribute instead. Logfire displays the standard field.
 - The per-call LLM data does exist, in `response.completed` log events carrying the model,
   token counts and time to first token. But they open only on a generic attributes tab.
 

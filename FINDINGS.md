@@ -534,8 +534,11 @@ The raw write token worked as the `Authorization` value, with no `Bearer` prefix
 - **Codex gets nothing LLM-specific.**
   - Live is dominated by its `persist_rollout_items` / `realtime_conversation.running_state`
     spans.
-  - Its log records have no message Logfire recognises, so they're labelled by Rust source
-    location (`event otel\src\tool_result.rs:54`, `event otel\src\events\session_telemetry.rs:1132`).
+  - Its log records are labelled by Rust source location (`event otel\src\tool_result.rs:54`,
+    `event otel\src\events\session_telemetry.rs:1132`). Codex puts the source location in
+    the OTLP `eventName` field, and its documented `codex.*` name in an `event.name`
+    attribute (11 of 48 records, from auth storage, have no `codex.*` name at all).
+    Logfire displays `eventName`.
   - The per-call LLM data is in those logs: the `response.completed` events carry `model`,
     input/cached/output token counts and `ttft_ms`. They open only on the generic
     Details tab.
