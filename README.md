@@ -17,6 +17,7 @@ SaaS. (The agents still talk to their own model APIs, of course.)
 ```
 docker-compose.yml          collector (contrib 0.162.0) + Jaeger 2.22.0 + Prometheus v3.15.0
 collector/config.yaml       OTLP in (4317 gRPC, 4318 HTTP) -> debug, per-agent JSONL files, Jaeger, Prometheus
+collector/codex-slow-run.yaml  standalone: shareable Codex "why was this run slow?" export (4 events, allowlisted)
 prometheus/prometheus.yml   scrapes the collector's :8889
 env/
   claude.env                Claude Code, default privacy
@@ -35,6 +36,7 @@ scripts/
   rotate-captures.sh        move live captures into captures/runs/<label>/
   summarise.sh              per-agent counts, names, attribute keys, token sums, canary hits
   lib/tree.jq               span tree as indented text, with durations
+  lib/codex-slow.jq         timeline (model calls, TTFT, tokens, tools) from codex-slow-run.yaml output
   replay.sh                 replay an archived run through a one-shot collector, identity stripped
                             (dry run, or to a vendor via collector/replay-<vendor>.yaml)
   codex-config.sh           optional: install/uninstall the [otel] block in ~/.codex/config.toml (with backup)

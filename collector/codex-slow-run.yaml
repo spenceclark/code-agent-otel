@@ -1,0 +1,67 @@
+# The smallest useful Codex export for "why was this run slow?", safe to share.
+#
+# Keeps four log events and nothing else (no traces, no metrics):
+#   codex.websocket_request          a model call starts (its duration_ms is only the send)
+#   codex.sse_event response.completed  the call finishes: model, tokens, ttft_ms
+#   codex.tool_result                tool name, duration, success
+#   codex.turn_ttft                  time to first token for the turn
+# A model call's duration is the gap between a websocket_request and the next
+# response.completed, so read the records in timestamp order. response.completed records
+# carry no trace ID; conversation.id groups them. Each shell command shows up twice, as
+# `exec` wrapping `exec_command`, so don't count both.
+#
+# Attributes are allowlisted, so file contents and shell output (tool `arguments` and
+# `output`), MCP server names, user email/account ID, host name and the auth.* flags
+# about which API keys are in your environment are all dropped, including any new
+# fields a later Codex version adds. MCP tools keep only their bare tool_name (e.g. `js`).
+#
+# Checked against codex-cli 0.162.1. Point Codex's log exporter at this collector in
+# ~/.codex/config.toml (Codex ignores [otel] in a project's .codex/config.toml):
+#   [otel]
+#   exporter = { otlp-http = { endpoint = "http://127.0.0.1:4318/v1/logs", protocol = "binary" } }
+# Don't point trace_exporter or metrics_exporter here: this collector only accepts logs.
+# Run with: otelcol-contrib --config codex-slow-run.yaml  -> ./codex-slow-run.jsonl
+# Then:    jq -rs -f scripts/lib/codex-slow.jq codex-slow-run.jsonl   (timeline)
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 127.0.0.1:4318   # use 0.0.0.0 inside a container and publish the port
+
+processors:
+  filter/codex_slow_run:
+    error_mode: propagate   # on an error drop the batch, never pass it through unscrubbed
+    logs:
+      log_record:
+        - >-
+          not (attributes["event.name"] == "codex.websocket_request"
+          or attributes["event.name"] == "codex.tool_result"
+          or attributes["event.name"] == "codex.turn_ttft"
+          or (attributes["event.name"] == "codex.sse_event" and attributes["event.kind"] == "response.completed"))
+
+  transform/allowlist:
+    error_mode: propagate   # on an error drop the batch, never pass it through unscrubbed
+    log_statements:
+      - context: resource
+        statements:
+          - keep_keys(attributes, ["service.name", "service.version"])
+      - context: log
+        statements:
+          - >-
+            keep_keys(attributes, ["event.name", "event.kind", "event.timestamp", "conversation.id",
+            "model", "model_reasoning_effort", "ttft_ms", "duration_ms", "success",
+            "input_token_count", "cached_token_count", "cache_write_token_count",
+            "output_token_count", "reasoning_token_count", "tool_token_count",
+            "tool_name", "call_id", "output_truncated"])
+
+exporters:
+  file:
+    path: ./codex-slow-run.jsonl
+
+service:
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: [filter/codex_slow_run, transform/allowlist]
+      exporters: [file]
