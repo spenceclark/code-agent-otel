@@ -263,6 +263,35 @@ the current token names but puts them on the wrong span, with no model or provid
 them.
 Claude Code uses its own names for almost everything.
 
+**The metrics differ just as much.** None of the three links its metrics back to traces.
+OTel has a mechanism for that, called exemplars, and none of them uses it. So the metrics are
+running totals and distributions for the whole run:
+
+- **Claude Code** sends six product metrics: tokens, cost in USD, lines of code changed,
+  edit accept/reject decisions, active time and session count. Every series carries
+  `session.id` and `user.email`, so each developer's session gets its own time series.
+  That makes per-person cost dashboards easy, and it's the cardinality problem in
+  Finding 3.
+- **Codex** sends 64. A handful describe the work: tokens per turn, time to first token,
+  tool calls and their duration. The rest describe Codex's own machinery, such as startup
+  phases, SQLite, MCP and skill caches, and websocket events. It exports them as deltas,
+  with no session or user tag.
+- **Qwen Code** sends 16:
+  - API request counts and latency, with a per-phase breakdown;
+  - tokens;
+  - tool calls;
+  - file operations by language;
+  - auto-memory recall;
+  - the process's own CPU and memory.
+
+  These aren't tagged by session either. Every cumulative series is re-sent on each export,
+  so the datapoint count grows with how long the run takes, and Qwen, the slowest, sends
+  the most.
+
+Without a session tag, Codex's and Qwen's metrics from different developers merge in a
+shared backend unless you add your own tag. Qwen honours `OTEL_RESOURCE_ATTRIBUTES`;
+Codex's documented option is a single `otel.environment` value.
+
 ## Finding 3: privacy defaults are all over the place
 
 This is what lands in your collector with each agent's default settings:
