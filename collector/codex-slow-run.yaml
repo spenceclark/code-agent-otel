@@ -20,14 +20,19 @@
 #   [otel]
 #   exporter = { otlp-http = { endpoint = "http://127.0.0.1:4318/v1/logs", protocol = "binary" } }
 # Don't point trace_exporter or metrics_exporter here: this collector only accepts logs.
-# Run with: otelcol-contrib --config codex-slow-run.yaml  -> ./codex-slow-run.jsonl
-# Then:    jq -rs -f scripts/lib/codex-slow.jq codex-slow-run.jsonl   (timeline)
+# Run it from the folder holding this file; the export lands next to it as codex-slow-run.jsonl:
+#   docker run --rm --user "$(id -u):$(id -g)" -p 127.0.0.1:4318:4318 -v "$PWD":/work -w /work \
+#     otel/opentelemetry-collector-contrib:0.162.0 --config=codex-slow-run.yaml \
+#     --set=receivers.otlp.protocols.http.endpoint=0.0.0.0:4318
+#   (or without Docker: otelcol-contrib --config codex-slow-run.yaml)
+# Ctrl+C once Codex has finished, then for a timeline:
+#   jq -rs -f scripts/lib/codex-slow.jq codex-slow-run.jsonl
 
 receivers:
   otlp:
     protocols:
       http:
-        endpoint: 127.0.0.1:4318   # use 0.0.0.0 inside a container and publish the port
+        endpoint: 127.0.0.1:4318   # the docker command above overrides this to 0.0.0.0
 
 processors:
   filter/codex_slow_run:
