@@ -382,7 +382,7 @@ attributes kept as metadata.
 | Other conventions | OpenInference, Traceloop, `langsmith.*` | OpenInference, Traceloop, `langfuse.*`, plain `model`/`input_tokens` (code) | OpenInference, `braintrust.*`, **Claude Code span names** | OpenInference / Traceloop for agents; vendor attributes only in Live/Explore |
 | Cost | from provider + model via a pricing map | inferred from model for generations | from model via its catalog | `operation.cost` if sent, else estimated from tokens (UI only) |
 | Limits that matter here | 25,000 runs per trace | 5 MB per request (cloud) | 10 MB per trace POST | **records older than 24 h are dropped**; 100 MB per request |
-| Coding-agent guides | Claude Code, Codex via **hooks** (transcripts); only Copilot via native OTel | Claude Code, Codex via **hooks**; only Copilot via native OTLP | Claude Code via hooks **or native OTel**; Codex via hooks | Codex via native OTel or a hooks plugin; no Claude Code or Qwen page, **but the UI has a Claude Code session panel** (observed) |
+| Coding-agent guides | Claude Code, Codex via **hooks** (transcripts); only Copilot via native OTel | Claude Code, Codex via **hooks**; only Copilot via native OTLP | Claude Code via hooks **or native OTel**; Codex via hooks | Codex via native OTel or a hooks plugin; Claude Code via a transcript-reading hooks plugin on Pydantic's GitHub (traces only, not in the docs); no Qwen page, **but the UI has a Claude Code session panel** (observed) |
 | Self-host | Enterprise | **MIT open source** | Enterprise | Enterprise |
 | Free tier | 5k traces/month | 50k units/month (each span counts) | 1 GB/month, 14-day retention | 10M records/month |
 
