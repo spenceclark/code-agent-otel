@@ -27,11 +27,13 @@ env/
   qwen.env                  Qwen Code, its defaults (prompts ARE logged)
   qwen.full-content.env     + sensitive GenAI span attributes
   qwen-settings.example.json equivalent .qwen/settings.json block
+  dsh.env / dsh.full-content.env  DeepSeek Harness (extra, see below)
 scripts/
   up.sh / down.sh           start / stop the stack
   run-claude.sh             claude -p      [--full-content [--raw-bodies]]
   run-codex.sh              codex exec     [--full-content] [--user-config]
   run-qwen.sh               qwen -p        [--full-content | --no-prompts]
+  run-dsh.sh                dsh --profile headless  [--full-content]   (extra, see below)
   reset-sample.sh           recreate work/sample from sample-repo/ (fresh git repo)
   rotate-captures.sh        move live captures into captures/runs/<label>/
   summarise.sh              per-agent counts, names, attribute keys, token sums, canary hits
@@ -215,6 +217,37 @@ Also useful: `docker compose logs -f otel-collector` (debug exporter, `verbosity
 - **The collector's file `group_by` drops resources without a string `service.name`.**
   The `all/` files still have them.
 - **Time zones.** OTLP timestamps are UTC nanoseconds.
+
+## DeepSeek Harness (extra)
+
+Not part of the three-agent post; notes in `FINDINGS-dsh.md`. Tested with dsh 0.1.2-rc.1 and
+`@loongsuite/dsh-plugin` 0.1.3 (plugin supports dsh `>=0.1.0-rc.6 <0.2.0`, so not dsh 0.2.x).
+
+One-time setup: add the plugin to a `headless` profile (this creates `~/.dsh/profiles/headless`;
+other profiles are untouched). `dsh plugin` shells out to `pnpm`. Without one, on Windows, put a
+`pnpm.cmd` containing `@corepack pnpm@10.28.2 %*` first on `PATH` and set
+`COREPACK_ENABLE_DOWNLOAD_PROMPT=0` for that command.
+
+```bash
+dsh plugin --profile headless add @loongsuite/dsh-plugin@0.1.3
+```
+
+```bash
+scripts/run-dsh.sh                  # plugin traces + metrics, no content
+scripts/run-dsh.sh --full-content   # + span content, + DSH's built-in exporter in FULL mode (logs)
+```
+
+- **DSH has two OTel exporters.** The plugin (traces + metrics, OTLP/HTTP protobuf only, base URL
+  in `OTEL_EXPORTER_OTLP_ENDPOINT`) and the built-in `dsh-session-telemetry-otel` in `dsh-base`
+  (logs only, full URL in `DSH_TELEMETRY_OTLP_URL`). The built-in one is mounted by default in
+  `FEEDBACK_ONLY` mode, aimed at `https://harness-telemetry.deepseeksvc.com/v1/logs`, and uploads
+  when you record `/feedback`. The kit points it at the local collector in both modes.
+- **Any value of `DSH_TELEMETRY_DISABLED`, even `0`, disables the built-in exporter.** The run
+  script unsets it.
+- **The model comes from your DSH settings** (`agent-default-model` in `~/.dsh/settings.yaml`);
+  headless has no `--model` flag. It's in the LLM span name (`chat <model>`).
+- **Headless approvals fail closed** (no answerer), but the default `workspace-write` mode let
+  every tool this task needs run on Windows (`read`, `edit`, `glob`, `grep`, `pwsh`).
 
 ## Verification status
 

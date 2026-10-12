@@ -22,24 +22,25 @@ receivers:
 
 processors:
   # Nothing that identifies a person or machine leaves the box: resource attributes
-  # (Codex puts host.name there) and span / span event / log / datapoint attributes.
+  # (Codex puts host.name there; the DSH plugin's service.instance.id is <service>@<host>:<pid>)
+  # and span / span event / log / datapoint attributes.
   transform/strip_identity:
     error_mode: ignore
     trace_statements:
       - context: resource
-        statements: ['delete_matching_keys(attributes, "^(user\\..*|organization\\.id|host\\.name)$")']
+        statements: ['delete_matching_keys(attributes, "^(user\\..*|organization\\.id|host\\.name|service\\.instance\\.id)$")']
       - context: span
         statements: ['delete_matching_keys(attributes, "^(user\\..*|organization\\.id|host\\.name)$")']
       - context: spanevent
         statements: ['delete_matching_keys(attributes, "^(user\\..*|organization\\.id|host\\.name)$")']
     log_statements:
       - context: resource
-        statements: ['delete_matching_keys(attributes, "^(user\\..*|organization\\.id|host\\.name)$")']
+        statements: ['delete_matching_keys(attributes, "^(user\\..*|organization\\.id|host\\.name|service\\.instance\\.id)$")']
       - context: log
         statements: ['delete_matching_keys(attributes, "^(user\\..*|organization\\.id|host\\.name)$")']
     metric_statements:
       - context: resource
-        statements: ['delete_matching_keys(attributes, "^(user\\..*|organization\\.id|host\\.name)$")']
+        statements: ['delete_matching_keys(attributes, "^(user\\..*|organization\\.id|host\\.name|service\\.instance\\.id)$")']
       - context: datapoint
         statements: ['delete_matching_keys(attributes, "^(user\\..*|organization\\.id|host\\.name)$")']
   # Tag everything so replays are easy to filter on the receiving side.

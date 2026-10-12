@@ -415,3 +415,53 @@ anything, and what happened when I did.
 Setup gotchas for all three agents (silent failures, Windows traps, and the Qwen flag that
 sent my request to the wrong provider) are in the
 [repo's README](https://github.com/spenceclark/code-agent-otel#gotchas).
+
+## Addendum: DeepSeek Harness (12 October 2026)
+
+Afterwards I put a fourth agent through the same kit: DeepSeek Harness (`dsh` 0.1.2-rc.1),
+with LoongSuite's new OpenTelemetry plugin (`@loongsuite/dsh-plugin` 0.1.3). It was one run
+per privacy mode, on `x-ai/grok-4.7` via OpenRouter (my DSH default), so it isn't tier-matched
+and the numbers are anecdotes. The notes are in the repo's FINDINGS-dsh.md.
+
+**Two exporters, from two companies.** The plugin comes from LoongSuite, an Alibaba
+observability project, and sends traces and metrics. DSH also ships DeepSeek's own exporter,
+which sends logs: the raw, unredacted session log. It's on by default in a "feedback only"
+mode, aimed at DeepSeek's own endpoint, and uploads when you use `/feedback`. So the part
+that follows the conventions comes from Alibaba, as with Qwen Code.
+
+| | Spans | Traces | Log records | Metric datapoints |
+|---|---|---|---|---|
+| DeepSeek Harness | 22 | 1 | 0 (56 with everything on) | 3 |
+
+**The cleanest trace of the four:**
+
+```
+enter_ai_application_system
+  invoke_agent deepseek-harness
+    react step
+      chat x-ai/grok-4.7
+      execute_tool read / edit / pwsh ...
+```
+
+- Every span sets `gen_ai.operation.name`, and the provider is `gen_ai.provider.name`.
+- The tokens sit on the `chat` span, next to the model.
+- With content switched on, it uses the current names: `gen_ai.input.messages`,
+  `gen_ai.tool.call.arguments` and so on.
+- The only metrics are the two standard GenAI histograms.
+
+That's four of the five changes on my wish list above. The miss is background work, below.
+
+**It isn't perfect:**
+
+- Time to first token is `gen_ai.response.time_to_first_token`, in integer nanoseconds. The
+  conventions say `gen_ai.response.time_to_first_chunk`, in seconds.
+- The turn's token totals are repeated on `invoke_agent`, so anything that sums every span
+  counts them twice.
+- One model call isn't traced at all: DSH asks the model for a session title, sending your
+  prompt, and only DeepSeek's own logs record it.
+- "Input tokens" means two things inside one agent: the plugin's figure includes cache reads,
+  and DSH's own logs exclude them.
+
+**Privacy: content-free by default.** There's no prompt, no file content and no email. The one
+thing to watch is the full working-directory path on every span, which for most people
+contains their username.

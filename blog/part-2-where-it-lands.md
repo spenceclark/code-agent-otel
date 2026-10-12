@@ -258,7 +258,8 @@ built-in tools, memory files, messages), which neither of the others sends.
 That's despite Qwen's span carrying `gen_ai.operation.name=invoke_agent`,
 `gen_ai.agent.name`, a conversation ID, and Logfire's own agent-run-candidate flag. The
 docs don't say why. One guess is that the conventions name that span `invoke_agent
-{agent name}`, and Qwen calls it `qwen-code.interaction`, but I haven't tested that.
+{agent name}`, and Qwen calls it `qwen-code.interaction`, but I haven't tested that. (The
+DeepSeek Harness addendum at the end makes it more likely.)
 
 ![Logfire Agents view: no agents detected](../screenshots/logfire-02-agents-none-detected.jpg)
 
@@ -319,3 +320,67 @@ If you build an agent, the most valuable thing you can do for your users' observ
 is the boring one. Use the `gen_ai.*` names and put them on the right spans. If you build
 a backend, document what you special-case. I only found Logfire's Claude Code panel by
 clicking on it.
+
+## Addendum: DeepSeek Harness (12 October 2026)
+
+Part 1's addendum added a fourth agent: DeepSeek Harness, with LoongSuite's OTel plugin for
+traces and metrics, and DeepSeek's own exporter for logs. Here's where its data lands.
+
+**Jaeger's GenAI tab fills completely,** as it does for Qwen Code. A `chat` span shows the
+agent name, operation, provider, model, and input, output and cached tokens. Tool spans get
+the tool icon and a "Tool Call: pwsh" label. Only time to first token lands under "Other
+GenAI attributes", because of its non-standard name.
+
+**The plugin is written with hosted backends in mind.** Its README includes a Langfuse setup.
+It also hard-codes a Langfuse attribute (`langfuse.observation.completion_start_time`) and an
+Alibaba Cloud one (`acs.arms.service.feature`). The signal question is easier here than with
+the other three: by default the plugin puts everything useful on spans, so a traces-only
+backend misses nothing but two metrics. Logs only appear if you switch on DeepSeek's exporter.
+Those are the raw session log, with no per-run tag because that exporter ignores
+`OTEL_RESOURCE_ATTRIBUTES`, so think twice before sending them anywhere.
+
+**In Logfire** (replayed, checked with SQL and in the UI), everything arrived: 44 spans, 56 log
+records and 6 datapoints from two runs.
+
+**The Agents view works, and works well.** Where Qwen Code got "No agents detected", DSH gets
+an agent page with runs, tokens, latency and errors over time. It also has a run list showing
+conversation ID, model, duration and tokens.
+
+![Logfire's Agents view for DeepSeek Harness](../screenshots/logfire-09-dsh-agent-metrics.jpg)
+
+Open a run from the full-content round and you get four tabs:
+
+- a summary, with the input and the final output;
+- every tool DSH offered the model, with how often each was called;
+- the conversation, rendered as messages and tool calls;
+- the trace, with token roll-ups at each step.
+
+![A DeepSeek Harness run in Logfire: trace and model run](../screenshots/logfire-10-dsh-agent-run-trace.jpg)
+
+Logfire flags both agents' spans as agent-run candidates, so the flag isn't what decides it.
+DSH's agent span differs from Qwen's in three ways:
+
+- it's named `invoke_agent deepseek-harness`, the conventions' pattern;
+- it sits under an entry span instead of at the root;
+- it's also flagged as a model call.
+
+That supports the span-name guess above, though with three differences it doesn't prove it.
+
+A few rough edges:
+
+- **The time-to-first-token chart says "No data".** It needs the conventions' attribute, and
+  DSH sends its own `time_to_first_token`.
+- **One total is doubled.** The agent-level figures are right: 121.2k tokens over 10 model
+  calls for the two runs. But open a run and its summary shows 112.7k input tokens for a run
+  that used 56.4k. It adds the `invoke_agent` span's turn totals, which Logfire also flags as a
+  model call, to the `chat` spans' own.
+- **The run's "input" is DSH's skill catalog, not the prompt.** Logfire shows the
+  conversation's first message, and DSH puts a list of my installed skills (from
+  `~/.agents/skills`) ahead of the prompt. Part 1's "your setup leaks too", in content mode.
+- **DeepSeek's logs arrive as 56 one-record traces, each named `log`.** They carry no trace
+  context and no event name. The record type is in an `event.type` attribute and the content
+  in Logfire's `log_body` column. The only way to join them to the plugin's trace is the
+  session ID.
+
+One change to the replay: the plugin's `service.instance.id` is `<service>@<hostname>:<pid>`,
+so the strip rule now deletes that key on resources too.
